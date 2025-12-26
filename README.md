@@ -32,12 +32,12 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Beautiful TUI Mode (Recommended)
+### Quick Start (TUI Mode - Default)
 
-For the best experience, use the Terminal User Interface with rich formatting, colors, and progress indicators:
+MalSnap defaults to a beautiful Terminal User Interface with rich formatting, colors, and progress indicators:
 
 ```bash
-python malsnap_tui.py suspicious.exe
+python malsnap.py suspicious.exe
 ```
 
 ![MalSnap TUI Demo](https://via.placeholder.com/800x400?text=MalSnap+TUI+Demo)
@@ -49,24 +49,21 @@ The TUI includes:
 - Visual threat score indicators
 - Formatted section analysis
 
-### Classic CLI Mode
-
-#### Basic Analysis
-
-```bash
-python malsnap.py suspicious.exe
-```
-
-#### With YARA Rules
+### With YARA Rules
 
 ```bash
 python malsnap.py suspicious.exe --yara rules/malware.yar
-python malsnap_tui.py suspicious.exe --yara rules/malware.yar
 ```
 
-#### JSON Output
+### For Automation (Text/JSON)
+
+When you need machine-readable output for scripts or automation:
 
 ```bash
+# Plain text output
+python malsnap.py suspicious.exe --format text
+
+# JSON output for automation
 python malsnap.py suspicious.exe --format json --output report.json
 ```
 

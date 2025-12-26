@@ -359,24 +359,47 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  malsnap.py sample.exe
-  malsnap.py sample.exe --yara rules.yar
-  malsnap.py sample.exe --output report.json --format json
+  malsnap.py sample.exe                          # Beautiful TUI (default)
+  malsnap.py sample.exe --yara rules.yar         # TUI with YARA
+  malsnap.py sample.exe --format json -o out.json  # JSON for automation
+  malsnap.py sample.exe --format text            # Plain text output
         """
     )
 
     parser.add_argument('file', help='File to analyze')
     parser.add_argument('--yara', '-y', help='YARA rules file')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
-    parser.add_argument('--format', '-f', choices=['text', 'json'],
-                       default='text', help='Output format')
+    parser.add_argument('--format', '-f', choices=['tui', 'text', 'json'],
+                       default='tui', help='Output format (default: tui)')
 
     args = parser.parse_args()
 
     try:
+        # If TUI mode and not saving to file, use the TUI interface
+        if args.format == 'tui' and not args.output:
+            try:
+                from rich.console import Console
+                from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+                import malsnap_tui
+
+                tui = malsnap_tui.MalSnapTUI()
+                tui.display_banner()
+                Console().print(f"\n[bold cyan]Analyzing:[/bold cyan] {args.file}\n")
+                results = tui.analyze_with_progress(args.file, args.yara)
+                tui.display_results(results)
+                Console().print("\n[bold green]✓ Analysis complete![/bold green]\n")
+                return
+            except ImportError:
+                print("[!] Rich library not installed. Falling back to text output.")
+                print("[!] Install with: pip install rich")
+                args.format = 'text'
+
+        # For text/json or when saving to file
         analyzer = MalSnap(args.file, args.yara)
         analyzer.analyze()
-        report = analyzer.generate_report(args.format)
+
+        output_format = 'text' if args.format == 'tui' else args.format
+        report = analyzer.generate_report(output_format)
 
         if args.output:
             with open(args.output, 'w') as f:
