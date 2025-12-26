@@ -13,9 +13,11 @@ build/
 
 # Analysis samples (never commit malware)
 samples/
+test_samples/
 *.exe
 *.dll
 *.sys
+*.zip
 
 # Reports
 reports/

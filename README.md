@@ -28,22 +28,43 @@ pip install -r requirements.txt
 - Python 3.7+
 - pefile
 - yara-python
+- rich (for TUI mode)
 
 ## Usage
 
-### Basic Analysis
+### Beautiful TUI Mode (Recommended)
+
+For the best experience, use the Terminal User Interface with rich formatting, colors, and progress indicators:
+
+```bash
+python malsnap_tui.py suspicious.exe
+```
+
+![MalSnap TUI Demo](https://via.placeholder.com/800x400?text=MalSnap+TUI+Demo)
+
+The TUI includes:
+- Real-time progress bars
+- Color-coded panels and tables
+- Syntax-highlighted hashes
+- Visual threat score indicators
+- Formatted section analysis
+
+### Classic CLI Mode
+
+#### Basic Analysis
 
 ```bash
 python malsnap.py suspicious.exe
 ```
 
-### With YARA Rules
+#### With YARA Rules
 
 ```bash
 python malsnap.py suspicious.exe --yara rules/malware.yar
+python malsnap_tui.py suspicious.exe --yara rules/malware.yar
 ```
 
-### JSON Output
+#### JSON Output
 
 ```bash
 python malsnap.py suspicious.exe --format json --output report.json
