@@ -117,36 +117,47 @@ Automated risk assessment based on:
 
 ## Example Output
 
+### TUI Mode (Default)
+
+When you run `python malsnap.py sample.exe`, you'll see:
+
+**Progress indicators during analysis:**
 ```
-================================================================================
-MalSnap Analysis Report - suspicious.exe
-================================================================================
+Gathering file info...      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Calculating hashes...       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Analyzing PE structure...   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Extracting strings...       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Analyzing imports...        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Calculating threat score... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
 
-File Information:
-  Path: /samples/suspicious.exe
-  Size: 245.32 KB
+**Formatted panels and tables:**
+- **File Information Panel** - File name, size, MD5/SHA1/SHA256 hashes (color-coded)
+- **PE Structure Panel** - File type (EXE/DLL), target machine, compilation timestamp, section count
+- **Entropy Analysis Panel** - Shannon entropy score with visual indicators (✓ Not Packed / ⚠ LIKELY PACKED)
+- **PE Sections Table** - Detailed table showing virtual address, sizes, entropy per section, suspicious indicators
+- **Suspicious API Calls Panel** - Red-highlighted dangerous Windows APIs with descriptions:
+  - VirtualAllocEx - Remote memory allocation (process injection)
+  - WriteProcessMemory - Write to another process (injection)
+  - CreateRemoteThread - Remote thread creation (injection)
+  - IsDebuggerPresent - Anti-debugging
+  - CryptEncrypt/Decrypt - Encryption (possible ransomware)
+- **Interesting Strings Panel** - Extracted URLs, IPs, registry keys, file paths, commands
+- **YARA Matches Panel** - Triggered detection rules with tags
+- **Threat Score Panel** - Visual bar graph (0-100) with color-coded risk assessment:
+  - 0-29: GREEN - LOW RISK ✓
+  - 30-59: YELLOW - MEDIUM RISK ⚠
+  - 60-100: RED - HIGH RISK ⚠
 
-Hashes:
-  MD5:    d41d8cd98f00b204e9800998ecf8427e
-  SHA1:   da39a3ee5e6b4b0d3255bfef95601890afd80709
-  SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+### Text/JSON Mode
 
-Entropy Analysis:
-  Overall Entropy: 7.4
-  Assessment: Likely packed/encrypted
+For automation or when saving to file:
+```bash
+# Plain text output
+python malsnap.py sample.exe --format text
 
-Suspicious API Calls (8):
-  - VirtualAllocEx (kernel32.dll)
-    Remote memory allocation (process injection)
-  - WriteProcessMemory (kernel32.dll)
-    Write to another process (injection)
-  - CreateRemoteThread (kernel32.dll)
-    Remote thread creation (injection)
-
-================================================================================
-THREAT SCORE: 75/100
-Assessment: HIGH RISK
-================================================================================
+# JSON output
+python malsnap.py sample.exe --format json --output report.json
 ```
 
 ## YARA Rules
