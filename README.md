@@ -28,13 +28,13 @@ pip install -r requirements.txt
 - Python 3.7+
 - pefile
 - yara-python
-- rich (for TUI mode)
+- textual (for interactive TUI)
 
 ## Usage
 
-### Quick Start (TUI Mode - Default)
+### Quick Start (Interactive TUI - Default)
 
-MalSnap defaults to a beautiful Terminal User Interface with rich formatting, colors, and progress indicators:
+MalSnap defaults to a fully interactive terminal interface built with Textual, featuring keyboard navigation, real-time analysis, and tabbed views:
 
 ```bash
 python malsnap.py suspicious.exe
@@ -42,12 +42,13 @@ python malsnap.py suspicious.exe
 
 ![MalSnap TUI Demo](https://via.placeholder.com/800x400?text=MalSnap+TUI+Demo)
 
-The TUI includes:
-- Real-time progress bars
-- Color-coded panels and tables
-- Syntax-highlighted hashes
-- Visual threat score indicators
-- Formatted section analysis
+The interactive TUI includes:
+- **Tabbed Navigation**: Switch between Overview, PE Structure, Imports, and Strings tabs
+- **Keyboard Controls**: Press 'q' to quit, 'r' to reload analysis
+- **Real-time Progress**: Live progress bar during analysis
+- **Color-coded Results**: Visual indicators for threat levels and suspicious content
+- **Scrollable Views**: Navigate through large datasets easily
+- **Professional Layout**: Clean, organized presentation of analysis results
 
 ### With YARA Rules
 
@@ -117,37 +118,55 @@ Automated risk assessment based on:
 
 ## Example Output
 
-### TUI Mode (Default)
+### Interactive TUI Mode (Default)
 
-When you run `python malsnap.py sample.exe`, you'll see:
+When you run `python malsnap.py sample.exe`, you'll see an interactive terminal interface with:
 
-**Progress indicators during analysis:**
-```
-Gathering file info...      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Calculating hashes...       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Analyzing PE structure...   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Extracting strings...       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Analyzing imports...        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Calculating threat score... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
+**During Analysis:**
+- Real-time progress bar showing current analysis stage (0-100%)
+- Status indicator showing which file is being analyzed
 
-**Formatted panels and tables:**
-- **File Information Panel** - File name, size, MD5/SHA1/SHA256 hashes (color-coded)
-- **PE Structure Panel** - File type (EXE/DLL), target machine, compilation timestamp, section count
-- **Entropy Analysis Panel** - Shannon entropy score with visual indicators (✓ Not Packed / ⚠ LIKELY PACKED)
-- **PE Sections Table** - Detailed table showing virtual address, sizes, entropy per section, suspicious indicators
-- **Suspicious API Calls Panel** - Red-highlighted dangerous Windows APIs with descriptions:
+**After Analysis - Tabbed Interface:**
+
+**Tab 1: Overview**
+- **File Information Panel**: File name, size, MD5/SHA1/SHA256 hashes (color-highlighted)
+- **Entropy Analysis Panel**: Shannon entropy score with visual status indicator
+  - ✓ Not Packed (green) - entropy < 7.0
+  - ⚠ LIKELY PACKED/ENCRYPTED (red) - entropy > 7.0
+- **Threat Score Widget**: Large, centered display with:
+  - Numeric score (0-100) with color coding
+  - Visual bar graph (█ filled, ░ empty)
+  - Risk assessment (LOW/MEDIUM/HIGH)
+
+**Tab 2: PE Structure**
+- **Sections Table**: Interactive table showing all PE sections
+  - Section name, virtual address, virtual size
+  - Entropy per section
+  - Suspicious indicators (⚠ for high entropy sections)
+  - Scrollable for binaries with many sections
+
+**Tab 3: Imports**
+- **Suspicious API Calls List**: Red-highlighted dangerous Windows APIs
   - VirtualAllocEx - Remote memory allocation (process injection)
   - WriteProcessMemory - Write to another process (injection)
   - CreateRemoteThread - Remote thread creation (injection)
   - IsDebuggerPresent - Anti-debugging
   - CryptEncrypt/Decrypt - Encryption (possible ransomware)
-- **Interesting Strings Panel** - Extracted URLs, IPs, registry keys, file paths, commands
-- **YARA Matches Panel** - Triggered detection rules with tags
-- **Threat Score Panel** - Visual bar graph (0-100) with color-coded risk assessment:
-  - 0-29: GREEN - LOW RISK ✓
-  - 30-59: YELLOW - MEDIUM RISK ⚠
-  - 60-100: RED - HIGH RISK ⚠
+  - Shows up to 20 most suspicious APIs
+  - Empty state: "No suspicious API calls detected" (green)
+
+**Tab 4: Strings**
+- **Interesting Strings List**: Yellow-highlighted extracted strings
+  - URLs, IP addresses, file paths
+  - Registry keys, commands, credentials
+  - Shows up to 30 strings with "...and X more" indicator
+  - Scrollable for long lists
+
+**Keyboard Controls:**
+- `q` - Quit application
+- `r` - Reload analysis (re-run on same file)
+- `Tab` - Switch between tabs
+- Arrow keys / Mouse - Navigate and scroll
 
 ### Text/JSON Mode
 

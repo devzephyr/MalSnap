@@ -24,17 +24,15 @@ except ImportError as e:
     print("[!] Install dependencies: pip install -r requirements.txt")
     sys.exit(1)
 
-# Optional Rich import for TUI
+# Optional Textual import for interactive TUI
 try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-    from rich.text import Text
-    from rich import box
-    RICH_AVAILABLE = True
+    from textual.app import App, ComposeResult
+    from textual.containers import Container, ScrollableContainer
+    from textual.widgets import Header, Footer, Label, Static, TabbedContent, TabPane, DataTable, ProgressBar
+    from textual.binding import Binding
+    TEXTUAL_AVAILABLE = True
 except ImportError:
-    RICH_AVAILABLE = False
+    TEXTUAL_AVAILABLE = False
 
 
 class MalSnap:
@@ -365,297 +363,255 @@ class MalSnap:
         return "\n".join(report)
 
 
-class TUIRenderer:
-    """Beautiful TUI renderer for analysis results"""
+class MalSnapTUI(App):
+    """Interactive malware analysis TUI built with Textual"""
 
-    def __init__(self):
-        if not RICH_AVAILABLE:
-            raise ImportError("Rich library required for TUI mode")
-        self.console = Console()
+    CSS = """
+    Screen {
+        background: $surface;
+    }
 
-    def display_banner(self):
-        """Display ASCII banner"""
-        banner = """
-╔═══════════════════════════════════════════════════════════════╗
-║                                                               ║
-║   ███╗   ███╗ █████╗ ██╗     ███████╗███╗   ██╗ █████╗ ██████╗║
-║   ████╗ ████║██╔══██╗██║     ██╔════╝████╗  ██║██╔══██╗██╔══██║
-║   ██╔████╔██║███████║██║     ███████╗██╔██╗ ██║███████║██████╔╝║
-║   ██║╚██╔╝██║██╔══██║██║     ╚════██║██║╚██╗██║██╔══██║██╔═══╝ ║
-║   ██║ ╚═╝ ██║██║  ██║███████╗███████║██║ ╚████║██║  ██║██║     ║
-║   ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ║
-║                                                               ║
-║         Automated Malware Static Analysis Tool               ║
-║                   By Adeyemi Folarin                          ║
-╚═══════════════════════════════════════════════════════════════╝
-"""
-        self.console.print(banner, style="bold cyan")
+    #info-panel {
+        height: auto;
+        border: solid $primary;
+        padding: 1;
+        margin: 1;
+    }
 
-    def analyze_with_progress(self, analyzer: MalSnap):
-        """Run analysis with progress indicators"""
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            console=self.console
-        ) as progress:
+    #threat-score {
+        height: 7;
+        border: solid $accent;
+        padding: 1;
+        margin: 1;
+        content-align: center middle;
+    }
 
-            task0 = progress.add_task("[cyan]Gathering file info...", total=1)
+    #progress-container {
+        height: 5;
+        padding: 1;
+        margin: 1;
+    }
+
+    .green { color: $success; }
+    .yellow { color: $warning; }
+    .red { color: $error; }
+    .cyan { color: $primary; }
+    """
+
+    BINDINGS = [
+        Binding("q", "quit", "Quit", priority=True),
+        Binding("r", "reload", "Reload Analysis"),
+    ]
+
+    def __init__(self, file_path: str, yara_rules: str = None):
+        super().__init__()
+        self.file_path = file_path
+        self.yara_rules = yara_rules
+        self.results = None
+
+    def compose(self) -> ComposeResult:
+        """Create child widgets"""
+        yield Header()
+
+        with Container(id="progress-container"):
+            yield Label(f"Analyzing: {Path(self.file_path).name}", id="status")
+            yield ProgressBar(total=100, show_eta=False, id="progress")
+
+        with TabbedContent():
+            with TabPane("Overview"):
+                yield ScrollableContainer(id="overview")
+            with TabPane("PE Structure"):
+                yield ScrollableContainer(id="pe-structure")
+            with TabPane("Imports"):
+                yield ScrollableContainer(id="imports")
+            with TabPane("Strings"):
+                yield ScrollableContainer(id="strings")
+
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Run analysis when app starts"""
+        self.run_worker(self.analyze_file(), exclusive=True)
+
+    async def analyze_file(self) -> None:
+        """Analyze file in background worker"""
+        try:
+            analyzer = MalSnap(self.file_path, self.yara_rules)
+            progress = self.query_one(ProgressBar)
+
+            # Update progress during analysis
+            progress.update(progress=20)
             analyzer.results['file_info'] = {
                 'name': analyzer.file_path.name,
-                'path': str(analyzer.file_path.absolute()),
-                'size': analyzer.file_path.stat().st_size,
                 'size_readable': f"{analyzer.file_path.stat().st_size / 1024:.2f} KB"
             }
-            progress.update(task0, advance=1)
-
-            task1 = progress.add_task("[cyan]Calculating hashes...", total=1)
             analyzer.results['hashes'] = analyzer.calculate_hashes()
-            progress.update(task1, advance=1)
 
-            task2 = progress.add_task("[cyan]Analyzing PE structure...", total=1)
+            progress.update(progress=40)
             analyzer.results['pe_info'] = analyzer.analyze_pe()
-            progress.update(task2, advance=1)
 
-            task3 = progress.add_task("[cyan]Extracting strings...", total=1)
+            progress.update(progress=60)
             analyzer.results['strings'] = analyzer.extract_strings()
-            progress.update(task3, advance=1)
 
-            task4 = progress.add_task("[cyan]Analyzing imports...", total=1)
+            progress.update(progress=80)
             analyzer.results['imports'] = analyzer.analyze_imports()
-            progress.update(task4, advance=1)
+            analyzer.results['entropy'] = analyzer.results.get('entropy', {})
 
             if analyzer.yara_rules:
-                task5 = progress.add_task("[cyan]Running YARA scan...", total=1)
                 analyzer.results['yara_matches'] = analyzer.run_yara_scan()
-                progress.update(task5, advance=1)
 
-            task6 = progress.add_task("[cyan]Calculating threat score...", total=1)
+            progress.update(progress=100)
             analyzer.results['threat_score'] = analyzer.calculate_threat_score()
-            progress.update(task6, advance=1)
 
-    def display_results(self, results: Dict[str, Any]):
-        """Display analysis results in beautiful TUI format"""
-        self.console.print("\n")
+            self.results = analyzer.results
 
-        # File info panels
-        self.console.print(self._create_file_info_panel(results))
-        self.console.print(self._create_pe_info_panel(results))
-        self.console.print(self._create_entropy_panel(results))
+            # Update UI
+            self.display_results()
 
-        # Sections table
-        if results['pe_info'].get('sections'):
-            self.console.print("\n")
-            self.console.print(self._create_sections_table(results))
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
 
-        # Imports
-        self.console.print("\n")
-        self.console.print(self._create_imports_panel(results))
+    def display_results(self) -> None:
+        """Display analysis results in UI"""
+        if not self.results:
+            return
 
-        # Strings
-        if results['strings'].get('interesting'):
-            self.console.print("\n")
-            self.console.print(self._create_strings_panel(results))
+        # Hide progress
+        self.query_one("#progress-container").display = False
 
-        # YARA matches
-        if results.get('yara_matches'):
-            self.console.print("\n")
-            self.console.print(self._create_yara_panel(results))
+        # Overview tab
+        overview = self.query_one("#overview")
+        overview.mount(self._create_file_info())
+        overview.mount(self._create_entropy_info())
+        overview.mount(self._create_threat_score())
 
-        # Threat score (centered)
-        self.console.print("\n")
-        self.console.print(self._create_threat_score_panel(results['threat_score']),
-                          justify="center")
-        self.console.print("\n")
+        # PE Structure tab
+        pe_container = self.query_one("#pe-structure")
+        pe_container.mount(self._create_pe_table())
 
-    def _create_file_info_panel(self, results: dict) -> Panel:
-        """Create file information panel"""
-        file_info = results['file_info']
-        hashes = results['hashes']
+        # Imports tab
+        imports_container = self.query_one("#imports")
+        imports_container.mount(self._create_imports_list())
 
-        table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
-        table.add_column("Property", style="cyan")
-        table.add_column("Value", style="white")
+        # Strings tab
+        strings_container = self.query_one("#strings")
+        strings_container.mount(self._create_strings_list())
 
-        table.add_row("File Name", file_info['name'])
-        table.add_row("Size", file_info['size_readable'])
-        table.add_row("MD5", f"[yellow]{hashes['md5']}[/yellow]")
-        table.add_row("SHA1", f"[yellow]{hashes['sha1']}[/yellow]")
-        table.add_row("SHA256", f"[yellow]{hashes['sha256']}[/yellow]")
+        self.notify("Analysis complete!", severity="information")
 
-        return Panel(table, title="[bold]File Information[/bold]", border_style="cyan")
+    def _create_file_info(self) -> Static:
+        """Create file information widget"""
+        info = self.results['file_info']
+        hashes = self.results['hashes']
 
-    def _create_pe_info_panel(self, results: dict) -> Panel:
-        """Create PE structure information panel"""
-        pe_info = results['pe_info']
+        content = f"""[bold cyan]File Information[/bold cyan]
+Name:    {info['name']}
+Size:    {info['size_readable']}
 
-        if 'error' in pe_info:
-            return Panel(f"[red]{pe_info['error']}[/red]",
-                        title="[bold]PE Analysis[/bold]", border_style="red")
+[bold cyan]Hashes[/bold cyan]
+MD5:     [yellow]{hashes['md5']}[/yellow]
+SHA1:    [yellow]{hashes['sha1']}[/yellow]
+SHA256:  [yellow]{hashes['sha256']}[/yellow]
+"""
+        return Static(content, classes="info-panel")
 
-        table = Table(show_header=False, box=box.SIMPLE, padding=(0, 2))
-        table.add_column("Property", style="cyan")
-        table.add_column("Value", style="white")
-
-        file_type = []
-        if pe_info.get('is_exe'): file_type.append("EXE")
-        if pe_info.get('is_dll'): file_type.append("DLL")
-        if pe_info.get('is_driver'): file_type.append("Driver")
-
-        table.add_row("File Type", " | ".join(file_type) if file_type else "Unknown")
-        table.add_row("Target Machine", pe_info.get('target_machine', 'Unknown'))
-        table.add_row("Compiled", pe_info.get('compilation_timestamp', 'Unknown'))
-        table.add_row("Sections", str(pe_info.get('number_of_sections', 0)))
-
-        return Panel(table, title="[bold]PE Structure[/bold]", border_style="blue")
-
-    def _create_entropy_panel(self, results: dict) -> Panel:
-        """Create entropy analysis panel"""
-        entropy = results.get('entropy', {})
-
-        text = Text()
-        text.append("Overall Entropy: ", style="cyan")
-        text.append(f"{entropy.get('overall', 0)}\n", style="bold yellow")
-        text.append("Status: ", style="cyan")
+    def _create_entropy_info(self) -> Static:
+        """Create entropy analysis widget"""
+        entropy = self.results.get('entropy', {})
 
         if entropy.get('is_packed'):
-            text.append("⚠ LIKELY PACKED/ENCRYPTED", style="bold red")
+            status = "[bold red]⚠ LIKELY PACKED/ENCRYPTED[/bold red]"
         else:
-            text.append("✓ Not Packed", style="bold green")
+            status = "[bold green]✓ Not Packed[/bold green]"
 
-        text.append(f"\n\n{entropy.get('analysis', '')}", style="white")
+        content = f"""[bold cyan]Entropy Analysis[/bold cyan]
+Overall: [yellow]{entropy.get('overall', 0)}[/yellow]
+Status:  {status}
+"""
+        return Static(content, classes="info-panel")
 
-        return Panel(text, title="[bold]Entropy Analysis[/bold]", border_style="magenta")
+    def _create_threat_score(self) -> Static:
+        """Create threat score widget"""
+        score = self.results['threat_score']
 
-    def _create_sections_table(self, results: dict) -> Table:
-        """Create sections table"""
-        pe_info = results['pe_info']
-
-        table = Table(title="PE Sections", box=box.ROUNDED, show_lines=True)
-        table.add_column("Section", style="cyan", no_wrap=True)
-        table.add_column("Virtual Address", style="yellow")
-        table.add_column("Virtual Size", justify="right", style="white")
-        table.add_column("Raw Size", justify="right", style="white")
-        table.add_column("Entropy", justify="right", style="magenta")
-        table.add_column("Suspicious", justify="center")
-
-        for section in pe_info.get('sections', []):
-            suspicious = "⚠" if section.get('suspicious') else "✓"
-            suspicious_style = "red" if section.get('suspicious') else "green"
-
-            table.add_row(
-                section['name'],
-                section['virtual_address'],
-                str(section['virtual_size']),
-                str(section['raw_size']),
-                str(section['entropy']),
-                f"[{suspicious_style}]{suspicious}[/{suspicious_style}]"
-            )
-
-        return table
-
-    def _create_imports_panel(self, results: dict) -> Panel:
-        """Create imports analysis panel"""
-        imports = results['imports']
-
-        if 'error' in imports:
-            return Panel(f"[red]{imports['error']}[/red]",
-                        title="[bold]Import Analysis[/bold]", border_style="red")
-
-        suspicious_apis = imports.get('suspicious_apis', [])
-
-        if not suspicious_apis:
-            return Panel("[green]No suspicious API calls detected[/green]",
-                        title="[bold]Import Analysis[/bold]", border_style="green")
-
-        table = Table(box=box.SIMPLE, show_header=True)
-        table.add_column("API Function", style="red bold", no_wrap=True)
-        table.add_column("DLL", style="yellow")
-        table.add_column("Description", style="white")
-
-        for api in suspicious_apis[:15]:
-            table.add_row(api['function'], api['dll'], api['description'])
-
-        if len(suspicious_apis) > 15:
-            table.add_row("...", f"+{len(suspicious_apis) - 15} more", "", style="dim")
-
-        return Panel(table,
-                    title=f"[bold]Suspicious API Calls ({len(suspicious_apis)} detected)[/bold]",
-                    border_style="red")
-
-    def _create_strings_panel(self, results: dict) -> Panel:
-        """Create interesting strings panel"""
-        strings = results['strings']
-        interesting = strings.get('interesting', [])
-
-        if not interesting:
-            return Panel("[dim]No interesting strings found[/dim]",
-                        title="[bold]String Analysis[/bold]", border_style="white")
-
-        text = Text()
-        for string in interesting[:20]:
-            text.append(f"• {string}\n", style="yellow")
-
-        if len(interesting) > 20:
-            text.append(f"\n... +{len(interesting) - 20} more strings", style="dim")
-
-        return Panel(text,
-                    title=f"[bold]Interesting Strings ({len(interesting)} found)[/bold]",
-                    border_style="yellow")
-
-    def _create_yara_panel(self, results: dict) -> Panel:
-        """Create YARA matches panel"""
-        yara_matches = results.get('yara_matches', [])
-
-        if not yara_matches:
-            return Panel("[dim]No YARA matches[/dim]",
-                        title="[bold]YARA Scan[/bold]", border_style="white")
-
-        table = Table(box=box.SIMPLE)
-        table.add_column("Rule", style="red bold")
-        table.add_column("Tags", style="yellow")
-
-        for match in yara_matches:
-            if 'error' in match:
-                return Panel(f"[red]{match['error']}[/red]",
-                            title="[bold]YARA Scan[/bold]", border_style="red")
-
-            tags = ", ".join(match.get('tags', [])) if match.get('tags') else "none"
-            table.add_row(match['rule'], tags)
-
-        return Panel(table,
-                    title=f"[bold]YARA Matches ({len(yara_matches)} rules)[/bold]",
-                    border_style="red")
-
-    def _create_threat_score_panel(self, score: int) -> Panel:
-        """Create threat score panel with visual indicator"""
         if score < 30:
             color = "green"
-            assessment = "LOW RISK"
-            symbol = "✓"
+            assessment = "LOW RISK ✓"
         elif score < 60:
             color = "yellow"
-            assessment = "MEDIUM RISK"
-            symbol = "⚠"
+            assessment = "MEDIUM RISK ⚠"
         else:
             color = "red"
-            assessment = "HIGH RISK"
-            symbol = "⚠"
+            assessment = "HIGH RISK ⚠"
 
         filled = int(score / 5)
         empty = 20 - filled
         bar = "█" * filled + "░" * empty
 
-        text = Text()
-        text.append(f"\n{symbol} ", style=f"bold {color}")
-        text.append(f"{score}/100\n\n", style=f"bold {color} on black")
-        text.append(f"{bar}\n\n", style=color)
-        text.append(f"Assessment: {assessment}", style=f"bold {color}")
+        content = f"""
+[bold]THREAT SCORE[/bold]
 
-        return Panel(text,
-                    title="[bold]THREAT SCORE[/bold]",
-                    border_style=color,
-                    expand=False)
+[bold {color}]{score}/100[/bold {color}]
+
+{bar}
+
+Assessment: [bold {color}]{assessment}[/bold {color}]
+"""
+        return Static(content, id="threat-score")
+
+    def _create_pe_table(self) -> DataTable:
+        """Create PE sections table"""
+        table = DataTable()
+        table.add_columns("Section", "V.Addr", "V.Size", "Entropy", "Status")
+
+        pe_info = self.results.get('pe_info', {})
+        for section in pe_info.get('sections', []):
+            status = "⚠" if section.get('suspicious') else "✓"
+            table.add_row(
+                section['name'],
+                section['virtual_address'],
+                str(section['virtual_size']),
+                str(section['entropy']),
+                status
+            )
+
+        return table
+
+    def _create_imports_list(self) -> Static:
+        """Create suspicious imports list"""
+        imports = self.results.get('imports', {})
+        suspicious = imports.get('suspicious_apis', [])
+
+        if not suspicious:
+            return Static("[green]No suspicious API calls detected[/green]")
+
+        content = "[bold red]Suspicious API Calls[/bold red]\n\n"
+        for api in suspicious[:20]:
+            content += f"[red]• {api['function']}[/red] ({api['dll']})\n  {api['description']}\n\n"
+
+        return Static(content)
+
+    def _create_strings_list(self) -> Static:
+        """Create interesting strings list"""
+        strings = self.results.get('strings', {})
+        interesting = strings.get('interesting', [])
+
+        if not interesting:
+            return Static("[dim]No interesting strings found[/dim]")
+
+        content = "[bold yellow]Interesting Strings[/bold yellow]\n\n"
+        for s in interesting[:30]:
+            content += f"[yellow]• {s}[/yellow]\n"
+
+        if len(interesting) > 30:
+            content += f"\n[dim]... and {len(interesting) - 30} more[/dim]"
+
+        return Static(content)
+
+    def action_reload(self) -> None:
+        """Reload analysis"""
+        self.notify("Reloading analysis...")
+        self.run_worker(self.analyze_file(), exclusive=True)
 
 
 def main():
@@ -664,7 +620,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  malsnap.py sample.exe                          # Beautiful TUI (default)
+  malsnap.py sample.exe                          # Interactive TUI (default)
   malsnap.py sample.exe --yara rules.yar         # TUI with YARA
   malsnap.py sample.exe --format json -o out.json  # JSON for automation
   malsnap.py sample.exe --format text            # Plain text output
@@ -674,36 +630,29 @@ Examples:
     parser.add_argument('file', help='File to analyze')
     parser.add_argument('--yara', '-y', help='YARA rules file')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
-    parser.add_argument('--format', '-f', choices=['tui', 'text', 'json'],
-                       default='tui', help='Output format (default: tui)')
+    parser.add_argument('--format', '-f', choices=['text', 'json'],
+                       default='tui', help='Output format (default: interactive TUI)')
 
     args = parser.parse_args()
 
     try:
-        # If TUI mode and not saving to file, use the TUI interface
+        # Default to interactive TUI unless format specified or output file given
         if args.format == 'tui' and not args.output:
-            if not RICH_AVAILABLE:
-                print("[!] Rich library not installed. Falling back to text output.")
-                print("[!] Install with: pip install rich")
+            if not TEXTUAL_AVAILABLE:
+                print("[!] Textual library not installed. Falling back to text output.")
+                print("[!] Install with: pip install textual")
                 args.format = 'text'
             else:
-                tui = TUIRenderer()
-                tui.display_banner()
-                Console().print(f"\n[bold cyan]Analyzing:[/bold cyan] {args.file}\n")
-
-                analyzer = MalSnap(args.file, args.yara)
-                tui.analyze_with_progress(analyzer)
-                tui.display_results(analyzer.results)
-
-                Console().print("\n[bold green]✓ Analysis complete![/bold green]\n")
+                # Run interactive TUI
+                app = MalSnapTUI(args.file, args.yara)
+                app.run()
                 return
 
         # For text/json or when saving to file
         analyzer = MalSnap(args.file, args.yara)
         analyzer.analyze()
 
-        output_format = 'text' if args.format == 'tui' else args.format
-        report = analyzer.generate_report(output_format)
+        report = analyzer.generate_report(args.format)
 
         if args.output:
             with open(args.output, 'w') as f:
