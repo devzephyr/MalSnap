@@ -28,8 +28,9 @@ except ImportError as e:
 try:
     from textual.app import App, ComposeResult
     from textual.containers import Container, ScrollableContainer
-    from textual.widgets import Header, Footer, Label, Static, TabbedContent, TabPane, DataTable, ProgressBar
+    from textual.widgets import Header, Footer, Label, Static, TabbedContent, TabPane, DataTable, ProgressBar, DirectoryTree
     from textual.binding import Binding
+    from textual.screen import Screen
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
@@ -363,44 +364,50 @@ class MalSnap:
         return "\n".join(report)
 
 
-class MalSnapTUI(App):
-    """Interactive malware analysis TUI built with Textual"""
+class PEFileTree(DirectoryTree):
+    """DirectoryTree that highlights PE files"""
 
-    CSS = """
-    Screen {
-        background: $surface;
-    }
+    def filter_paths(self, paths):
+        """Show all files and directories, but highlight PE files"""
+        return paths  # Show everything, we'll highlight PE files in the label
 
-    #info-panel {
-        height: auto;
-        border: solid $primary;
-        padding: 1;
-        margin: 1;
-    }
 
-    #threat-score {
-        height: 7;
-        border: solid $accent;
-        padding: 1;
-        margin: 1;
-        content-align: center middle;
-    }
+class BrowserScreen(Screen):
+    """File browser screen for selecting files to analyze"""
 
-    #progress-container {
-        height: 5;
-        padding: 1;
-        margin: 1;
-    }
+    def compose(self) -> ComposeResult:
+        """Create browser widgets"""
+        yield Header()
+        yield Static("""
+ ███╗   ███╗ █████╗ ██╗     ███████╗███╗   ██╗ █████╗ ██████╗
+ ████╗ ████║██╔══██╗██║     ██╔════╝████╗  ██║██╔══██╗██╔══██╗
+ ██╔████╔██║███████║██║     ███████╗██╔██╗ ██║███████║██████╔╝
+ ██║╚██╔╝██║██╔══██║██║     ╚════██║██║╚██╗██║██╔══██║██╔═══╝
+ ██║ ╚═╝ ██║██║  ██║███████╗███████║██║ ╚████║██║  ██║██║
+ ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝
+    Fast Automated Static Analysis for Windows PE Malware
+""", id="banner")
+        yield Static("[bold cyan]Browse and select a file to analyze[/bold cyan]\n[yellow]Navigate with arrow keys, press Enter to select a file[/yellow]", id="browser-help")
+        yield Container(
+            PEFileTree("./", id="file-tree"),
+            id="browser-container"
+        )
+        yield Footer()
 
-    .green { color: $success; }
-    .yellow { color: $warning; }
-    .red { color: $error; }
-    .cyan { color: $primary; }
-    """
+    def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        """Handle file selection - switch to analysis screen"""
+        event.stop()
+        # Get yara_rules from app if set
+        yara_rules = getattr(self.app, 'yara_rules', None)
+        # Switch to analysis screen
+        self.app.switch_screen(AnalysisScreen(str(event.path), yara_rules))
+
+
+class AnalysisScreen(Screen):
+    """Analysis results screen"""
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", priority=True),
-        Binding("r", "reload", "Reload Analysis"),
+        Binding("b", "browse", "Browse Files", show=True),
     ]
 
     def __init__(self, file_path: str, yara_rules: str = None):
@@ -410,14 +417,23 @@ class MalSnapTUI(App):
         self.results = None
 
     def compose(self) -> ComposeResult:
-        """Create child widgets"""
+        """Create analysis widgets"""
         yield Header()
+        yield Static("""
+ ███╗   ███╗ █████╗ ██╗     ███████╗███╗   ██╗ █████╗ ██████╗
+ ████╗ ████║██╔══██╗██║     ██╔════╝████╗  ██║██╔══██╗██╔══██╗
+ ██╔████╔██║███████║██║     ███████╗██╔██╗ ██║███████║██████╔╝
+ ██║╚██╔╝██║██╔══██║██║     ╚════██║██║╚██╗██║██╔══██║██╔═══╝
+ ██║ ╚═╝ ██║██║  ██║███████╗███████║██║ ╚████║██║  ██║██║
+ ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝
+    Fast Automated Static Analysis for Windows PE Malware
+""", id="banner")
 
         with Container(id="progress-container"):
             yield Label(f"Analyzing: {Path(self.file_path).name}", id="status")
             yield ProgressBar(total=100, show_eta=False, id="progress")
 
-        with TabbedContent():
+        with TabbedContent(id="analysis-tabs"):
             with TabPane("Overview"):
                 yield ScrollableContainer(id="overview")
             with TabPane("PE Structure"):
@@ -430,8 +446,12 @@ class MalSnapTUI(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Run analysis when app starts"""
+        """Start analysis when screen mounts"""
         self.run_worker(self.analyze_file(), exclusive=True)
+
+    def action_browse(self) -> None:
+        """Return to file browser"""
+        self.app.switch_screen(BrowserScreen())
 
     async def analyze_file(self) -> None:
         """Analyze file in background worker"""
@@ -608,10 +628,79 @@ Assessment: [bold {color}]{assessment}[/bold {color}]
 
         return Static(content)
 
-    def action_reload(self) -> None:
-        """Reload analysis"""
-        self.notify("Reloading analysis...")
-        self.run_worker(self.analyze_file(), exclusive=True)
+
+class MalSnapTUI(App):
+    """Interactive malware analysis TUI built with Textual"""
+
+    BINDINGS = [
+        Binding("q", "quit", "Quit", priority=True),
+    ]
+
+    CSS = """
+    Screen {
+        background: $surface;
+    }
+
+    #banner {
+        height: auto;
+        padding: 1;
+        content-align: center middle;
+        color: $accent;
+    }
+
+    #browser-container {
+        height: 100%;
+        border: solid $primary;
+        padding: 1;
+    }
+
+    #browser-help {
+        height: 3;
+        padding: 1;
+        background: $panel;
+        color: $text;
+    }
+
+    .info-panel {
+        height: auto;
+        border: solid $primary;
+        padding: 1;
+        margin: 1;
+    }
+
+    #threat-score {
+        height: 7;
+        border: solid $accent;
+        padding: 1;
+        margin: 1;
+        content-align: center middle;
+    }
+
+    #progress-container {
+        height: 5;
+        padding: 1;
+        margin: 1;
+    }
+
+    .green { color: $success; }
+    .yellow { color: $warning; }
+    .red { color: $error; }
+    .cyan { color: $primary; }
+    """
+
+    def __init__(self, file_path: str = None, yara_rules: str = None):
+        super().__init__()
+        self.file_path = file_path
+        self.yara_rules = yara_rules
+
+    def on_mount(self) -> None:
+        """Start with appropriate screen"""
+        if self.file_path:
+            # Direct to analysis if file provided
+            self.push_screen(AnalysisScreen(self.file_path, self.yara_rules))
+        else:
+            # Show browser if no file provided
+            self.push_screen(BrowserScreen())
 
 
 def main():
@@ -620,14 +709,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  malsnap.py sample.exe                          # Interactive TUI (default)
+  malsnap.py                                     # Interactive TUI with file browser
+  malsnap.py sample.exe                          # Analyze specific file with TUI
   malsnap.py sample.exe --yara rules.yar         # TUI with YARA
   malsnap.py sample.exe --format json -o out.json  # JSON for automation
   malsnap.py sample.exe --format text            # Plain text output
         """
     )
 
-    parser.add_argument('file', help='File to analyze')
+    parser.add_argument('file', nargs='?', help='File to analyze (optional - opens file browser if omitted)')
     parser.add_argument('--yara', '-y', help='YARA rules file')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
     parser.add_argument('--format', '-f', choices=['text', 'json'],
@@ -641,14 +731,21 @@ Examples:
             if not TEXTUAL_AVAILABLE:
                 print("[!] Textual library not installed. Falling back to text output.")
                 print("[!] Install with: pip install textual")
+                if not args.file:
+                    print("[!] Error: File argument required when Textual is not available")
+                    sys.exit(1)
                 args.format = 'text'
             else:
-                # Run interactive TUI
+                # Run interactive TUI (with or without file)
                 app = MalSnapTUI(args.file, args.yara)
                 app.run()
                 return
 
-        # For text/json or when saving to file
+        # For text/json or when saving to file - file is required
+        if not args.file:
+            print("[!] Error: File argument required for text/json output")
+            sys.exit(1)
+
         analyzer = MalSnap(args.file, args.yara)
         analyzer.analyze()
 

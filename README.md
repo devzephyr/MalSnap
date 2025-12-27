@@ -6,6 +6,7 @@ MalSnap is a Python-based static malware analysis tool designed for rapid triage
 
 ## Features
 
+- **Interactive File Browser**: Built-in filesystem navigator to select files for analysis
 - **PE Structure Analysis**: Parse and analyze Windows portable executable files
 - **Hash Generation**: MD5, SHA1, SHA256 for threat intelligence correlation
 - **Entropy Analysis**: Detect packed/encrypted malware using Shannon entropy
@@ -13,7 +14,9 @@ MalSnap is a Python-based static malware analysis tool designed for rapid triage
 - **Import Analysis**: Identify suspicious Windows API calls commonly used by malware
 - **YARA Integration**: Scan files against custom YARA rules
 - **Threat Scoring**: Automated risk assessment (0-100 scale)
+- **Multiple File Comparison**: Analyze and compare multiple files without restarting
 - **Multiple Output Formats**: JSON for automation, text for human analysis
+- **Professional ASCII Art Banner**: Distinctive branding in the terminal interface
 
 ## Installation
 
@@ -34,21 +37,37 @@ pip install -r requirements.txt
 
 ### Quick Start (Interactive TUI - Default)
 
-MalSnap defaults to a fully interactive terminal interface built with Textual, featuring keyboard navigation, real-time analysis, and tabbed views:
+MalSnap defaults to a fully interactive terminal interface built with Textual, featuring an ASCII art banner, file browser, keyboard navigation, real-time analysis, and tabbed views.
 
+**File Browser Mode (Recommended):**
+```bash
+python malsnap.py
+```
+
+Navigate through your filesystem with arrow keys, press Enter to analyze any file. Perfect for comparing multiple samples without restarting.
+
+**Direct Analysis Mode:**
 ```bash
 python malsnap.py suspicious.exe
 ```
 
-![MalSnap TUI Demo](https://via.placeholder.com/800x400?text=MalSnap+TUI+Demo)
+Skip the browser and jump straight to analysis of a specific file.
+
+![MalSnap TUI Demo](screenshots/malsnap-tui.svg)
 
 The interactive TUI includes:
+- **ASCII Art Banner**: Professional MALSNAP branding displayed on every screen
+- **File Browser**: Navigate directories and select files with arrow keys and Enter
 - **Tabbed Navigation**: Switch between Overview, PE Structure, Imports, and Strings tabs
-- **Keyboard Controls**: Press 'q' to quit, 'r' to reload analysis
+- **Keyboard Controls**:
+  - `q` - Quit from anywhere
+  - `b` - Return to file browser (compare multiple files)
+  - `Tab` - Switch between analysis tabs
+  - Arrow keys - Navigate through content
 - **Real-time Progress**: Live progress bar during analysis
 - **Color-coded Results**: Visual indicators for threat levels and suspicious content
 - **Scrollable Views**: Navigate through large datasets easily
-- **Professional Layout**: Clean, organized presentation of analysis results
+- **Multiple File Comparison**: Analyze different files in one session for side-by-side comparison
 
 ### With YARA Rules
 
@@ -163,10 +182,32 @@ When you run `python malsnap.py sample.exe`, you'll see an interactive terminal 
   - Scrollable for long lists
 
 **Keyboard Controls:**
-- `q` - Quit application
-- `r` - Reload analysis (re-run on same file)
-- `Tab` - Switch between tabs
-- Arrow keys / Mouse - Navigate and scroll
+- `q` - Quit application (works from any screen)
+- `b` - Browse files (return to file browser to analyze another sample)
+- `Tab` - Switch between analysis tabs
+- `Enter` - Select file in browser or expand directory
+- Arrow keys - Navigate through file browser and content
+
+### Comparing Multiple Files
+
+Analyze and compare multiple samples in a single session:
+
+1. Start MalSnap: `python malsnap.py`
+2. Navigate to first sample (e.g., `wannacry.exe`) and press `Enter`
+3. Review threat score and suspicious APIs
+4. Press `b` to return to file browser
+5. Navigate to second sample (e.g., `legitimate.exe`) and press `Enter`
+6. Compare threat scores and characteristics
+7. Repeat for as many files as needed - no restart required!
+
+**Use Case Example:**
+```bash
+python malsnap.py
+# Analyze WannaCry: Threat Score 95/100, HIGH RISK
+# Press 'b', navigate to curl.exe
+# Analyze curl.exe: Threat Score 30/100, MEDIUM RISK
+# Immediate comparison without leaving the tool
+```
 
 ### Text/JSON Mode
 
@@ -234,6 +275,86 @@ Regex-based filtering extracts potentially malicious indicators:
 - Credential-related strings
 - Shell commands
 - Registry modifications
+
+### TUI Architecture (Textual Framework)
+
+MalSnap uses the Textual framework for building the terminal user interface. Key architectural decisions:
+
+**Screen Management:**
+- Implemented using Textual's `Screen` class with proper lifecycle management
+- Two main screens: `BrowserScreen` (file navigation) and `AnalysisScreen` (results)
+- Uses `switch_screen()` instead of `push_screen()` to prevent stack buildup
+- This allows infinite file comparisons without memory leaks
+
+**Key Challenges Solved:**
+
+1. **Dynamic Screen Switching Issue**
+   - Initial implementation used `recompose()` which doesn't properly handle widget lifecycle
+   - Solution: Created separate `Screen` classes that each manage their own widget tree
+   - Reference: [Textual Screens Guide](https://textual.textualize.io/guide/screens/)
+
+2. **Widget Lifecycle Race Conditions**
+   - Problem: Attempting to access ProgressBar before UI finished rebuilding
+   - Solution: Use `switch_screen()` which properly handles mounting/unmounting
+   - Workers now wait for `on_mount()` callback before accessing widgets
+
+3. **Global Quit Binding**
+   - Problem: 'q' only worked on specific screens
+   - Solution: Moved `BINDINGS` to App level so quit works from any screen
+   - Reference: [Textual App Bindings](https://textual.textualize.io/api/app/)
+
+4. **DirectoryTree Event Handling**
+   - DirectoryTree automatically emits `FileSelected` events on Enter key
+   - Event handler uses `switch_screen()` to transition to analysis
+   - No manual event posting required - Textual handles this natively
+
+**Design Pattern:**
+```python
+# App manages screen transitions
+class MalSnapTUI(App):
+    BINDINGS = [("q", "quit", "Quit")]  # Global binding
+
+# Screens handle their own lifecycle
+class BrowserScreen(Screen):
+    def on_directory_tree_file_selected(self):
+        self.app.switch_screen(AnalysisScreen(...))
+
+class AnalysisScreen(Screen):
+    def on_mount(self):
+        self.run_worker(self.analyze_file())
+```
+
+This architecture ensures clean separation of concerns and proper resource management.
+
+### Development Journey
+
+**Initial Challenge:** Creating a production-ready TUI that could handle dynamic content switching
+
+**Evolution:**
+1. **Phase 1: Rich-based TUI** - Started with Rich library for formatted output
+   - Pros: Simple, beautiful output
+   - Cons: Not interactive, no dynamic screen switching
+
+2. **Phase 2: Textual with `recompose()`** - Attempted dynamic UI rebuilding
+   - Problem: `recompose()` doesn't guarantee proper widget lifecycle
+   - Result: ProgressBar not found errors, widgets accessing before mount
+
+3. **Phase 3: Proper Screen Architecture** - Final implementation
+   - Solution: Separate `Screen` classes for each view
+   - Used `switch_screen()` for transitions (replaces screen, doesn't stack)
+   - Global bindings at App level for consistent UX
+
+**Key Learnings:**
+- Textual's `Screen` class is the correct abstraction for different views
+- `switch_screen()` > `push_screen()` for main workflow navigation
+- `push_screen()` reserved for modals/dialogs that preserve context
+- Widget access must happen after `on_mount()` completes
+- Event handlers should use `event.stop()` to prevent duplicate processing
+
+**ASCII Art Implementation:**
+- Custom MALSNAP banner created using block characters (█ ╗ ╔ ║ ═)
+- Displayed on both BrowserScreen and AnalysisScreen for branding consistency
+- Uses Textual's Static widget with multiline string support
 
 ## Limitations
 
